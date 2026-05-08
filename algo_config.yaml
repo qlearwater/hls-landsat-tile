@@ -1,0 +1,17 @@
+algorithm:
+  name: hls_landsat_pipeline
+  description: Process Landsat to HLS per granule
+
+runtime:
+  docker_image: mas.maap-project.org/root/maap-workspaces/base:latest
+
+command: >
+  python hls_landsat_pipeline_dps.py
+  --tile {tile}
+  --date {date}
+
+inputs:
+  - name: tile
+    type: string
+  - name: date
+    type: string
