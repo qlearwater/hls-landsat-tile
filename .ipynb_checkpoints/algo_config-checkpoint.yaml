@@ -7,11 +7,11 @@ runtime:
 
 command: >
   python hls_landsat_pipeline_dps.py
-  --tile {tile}
+  --mgrs_tile {tile}
   --date {date}
 
 inputs:
-  - name: tile
+  - name: mgrs_tile
     type: string
   - name: date
     type: string

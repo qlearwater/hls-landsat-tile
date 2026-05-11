@@ -1,0 +1,17 @@
+algorithm:
+  name: hls-landsat-tile
+  description: Landsat to HLS tile processor
+
+runtime:
+  disk_space: 16GB # test mem needed
+  docker_container_url: mas.maap-project.org/root/maap-workspaces/custom_images/maap_base:v4.2.0
+
+command: >
+  ./run.sh {mgrs_tile} {date}
+
+inputs:
+  - name: mgrs_tile
+    type: string
+
+  - name: date
+    type: string
