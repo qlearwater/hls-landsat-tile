@@ -128,7 +128,7 @@ def download_hls_granule(mgrs_tile, date):
     logger.info(f"Downloading HLS reference for {mgrs_tile} {date}")
 
 
-    earthaccess.login()
+    earthaccess.login(strategy="environment")
 
     results = earthaccess.search_data(
         short_name="HLSL30",

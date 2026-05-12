@@ -32,6 +32,7 @@ from rasterio.session import AWSSession
 import time
 import fsspec
 import s3fs
+import csv
 import pandas as pd
 import numpy as np
 import xml.etree.ElementTree as ET
@@ -54,7 +55,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Your MAAP S3 bucket
 S3_BUCKET = "maap-ops-workspace"
-S3_PREFIX = "clearwater/shared"
+S3_PREFIX = "shared/clearwater/sample_granules"
 
 # GDAL tuning
 gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
@@ -127,7 +128,7 @@ def download_hls_granule(mgrs_tile, date):
     logger.info(f"Downloading HLS reference for {mgrs_tile} {date}")
 
 
-    earthaccess.login()
+    earthaccess.login(strategy="environment")
 
     results = earthaccess.search_data(
         short_name="HLSL30",
@@ -476,7 +477,51 @@ def translate_to_geotiff(input_path, output_path, nodata):
         raise RuntimeError(f"Failed to translate output GeoTIFF: {output_path}")
     out_ds = None
 
+# =============================================================================
+# Compare Landsat and HLS
+# =============================================================================
+def compare_sr(landsat_sr_paths, hls_paths, mgrs_tile, date):
+    logger.info(f"Comparing Landsat and HLS SR")
+    bands = ["B1", "B2", "B3", "B4", "B5", "B6", "B7"]
+    header = ["BAND","LANDSAT_MEAN","HLS_MEAN","LANDSAT_STD","HLS_STD",
+               "ABS_DIFF_MEAN","ABS_DIFF_STD","ABS_DIFF_MEDIAN","ABS_DIFF_75","ABS_DIFF_95",
+               "RATIO_MEAN","RATIO_STD","RATIO_MEDIAN","RATIO_75","RATIO_95",
+               "ABS_DIFF_MEAN_95CI","ABS_DIFF_STD_95CI","RATIO_MEAN_95CI","RATIO_STD_95CI"]
+    out_stats = f"{OUTPUT_DIR}/SR.T{mgrs_tile}.{date}.csv"
+    with open(out_stats, 'w', newline='') as outfile:
+        writer = csv.writer(outfile)
+        writer.writerow(header)
+        for i in range(7):
+            with rio.open(landsat_sr_paths[i]) as lsrc:
+                landsat = lsrc.read(1, masked=True)
+            with rio.open(hls_paths[i]) as src:
+                hls = src.read(1, masked=True)*0.0001
+            diff = hls - landsat
+            ratio = landsat/hls
+            diff_p50, diff_p75, diff_p95 = np.percentile(np.abs(diff), [50, 75, 95])
+            ratio_p50, ratio_p75, ratio_p95 = np.percentile(ratio, [50, 75, 95])
+            row_data = [bands[i],landsat.mean(),hls.mean(),landsat.std(),hls.std(),
+                   np.abs(diff).mean(), np.abs(diff).std(),diff_p50, diff_p75, diff_p95,
+                  ratio.mean(), ratio.std(), ratio_p50, ratio_p75, ratio_p95,]            
 
+            diff_mean = diff.mean()
+            diff_std = diff.std()
+            lower_bound = diff_mean - 2 * diff_std
+            upper_bound = diff_mean + 2 * diff_std
+            mask = (diff > lower_bound) & (diff < upper_bound)
+            row_data.extend([np.mean(np.abs(diff[mask])), np.std(np.abs(diff[mask]))])
+            
+            ratio_mean = ratio.mean()
+            ratio_std = ratio.std()
+            lower_bound = ratio_mean - 2 * ratio_std
+            upper_bound = ratio_mean + 2 * ratio_std
+            mask = (ratio > lower_bound) & (ratio < upper_bound)
+            row_data.extend([np.mean(ratio[mask]), np.std(ratio[mask])])
+            # Format floats to 5 decimals, keep other data types as they are
+            formatted_row = [f"{x:.5f}" if isinstance(x, float) else x for x in row_data]
+            writer.writerow(formatted_row)
+    return out_stats
+    
 # =============================================================================
 # per granule logger
 # =============================================================================
@@ -683,32 +728,37 @@ def main():
             mgrs_tile,
             date
         )
+        sorted_hls = sorted(hls_granules, key=lambda x: os.path.basename(x))
+        
         ref_path = [path for path in hls_granules if 'B05' in path.name.split('.')]
         ref_path = ref_path[0]
         logger.info(ref_path)
+        
         #
-        # Run your Landsat -> HLS workflow
+        # Run Landsat -> HLS workflow
         #
-        output_files = landsat_toa_granule(
+        output_toa_files = landsat_toa_granule(
             mgrs_tile,
             date,
             ref_path
         )
+        
+        output_sr_files = landsat_sr_granule(
+            mgrs_tile,
+            date,
+            ref_path
+        )
+
+
+        output_stats = compare_sr(output_sr_files, sorted_hls, mgrs_tile, date)
+        
         # #
         # # Stage outputs for DPS collection
         # #
-        # stage_outputs_for_dps(output_files)
-        
-        output_files = landsat_sr_granule(
-            mgrs_tile,
-            date,
-            ref_path
-        )
-        # stage_outputs_for_dps(output_files)
-        #
-        # Upload to S3
-        #
-
+        # #
+        # # Upload to S3
+        # #
+        upload_to_s3(output_stats, mgrs_tile, date)
         uploaded = upload_all_outputs_to_s3(
             mgrs_tile,
             date
@@ -716,9 +766,9 @@ def main():
         logger.info("Uploaded outputs:")
         for u in uploaded:
             logger.info(u)
-        logger.info("PROCESSING COMPLETE")
-        
+        logger.info("PROCESSING COMPLETE")        
         upload_to_s3(log_file, mgrs_tile, date)
+        
         
     except Exception as e:
 

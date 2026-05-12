@@ -19,3 +19,5 @@ inputs:
 queue: maap-dps-worker-16gb
 repository_url: https://github.com/qlearwater/hls-landsat-tile
 run_command: hls-landsat-tile/run.sh
+imported_worker_files:
+  $HOME/.netrc: /home/ops/.netrc
