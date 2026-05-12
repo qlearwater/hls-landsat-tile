@@ -18,4 +18,4 @@ inputs:
     required: true
 queue: maap-dps-worker-16gb
 repository_url: https://github.com/qlearwater/hls-landsat-tile
-run_command: run.sh
+run_command: hls-landsat-tile/run.sh
