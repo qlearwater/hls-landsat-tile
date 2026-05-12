@@ -1,18 +1,21 @@
-algorithm:
-  name: hls-landsat-tile
-  description: Landsat to HLS tile processor
-  code_repository: https://github.com/qlearwater/hls-landsat-tile
-
-runtime:
-  disk_space: 16GB # test mem needed
-  docker_container_url: mas.maap-project.org/root/maap-workspaces/jupyterlab/pangeo:v4.3.0
-
-command: >
-  ./run.sh {mgrs_tile} {date}
-
+algorithm_description: Landsat to HLS tile processor
+algorithm_name: hls-landsat-tile
+algorithm_version: main
+build_command: ''
+disk_space: 16GB
+docker_container_url: mas.maap-project.org/root/maap-workspaces/2i2c/pangeo:v5.1.0
 inputs:
-  - name: mgrs_tile
-    type: string
-
-  - name: date
-    type: string
+  config: []
+  file: []
+  positional:
+  - default: ''
+    description: MGRS tile id
+    name: mgrs_tile
+    required: true
+  - default: ''
+    description: Landsat acquisition date
+    name: date
+    required: true
+queue: maap-dps-worker-16gb
+repository_url: https://github.com/qlearwater/hls-landsat-tile
+run_command: run.sh
