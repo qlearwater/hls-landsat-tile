@@ -21,11 +21,12 @@ import logging
 import argparse
 from pathlib import Path
 
-import boto3
-import earthaccess
+import subprocess
 import rasterio as rio
 from osgeo import gdal
 
+import boto3
+import earthaccess
 from maap.maap import MAAP
 from rasterio.session import AWSSession
 
@@ -103,8 +104,10 @@ def configure_requester_pays():
 
     maap = MAAP(maap_host="api.maap-project.org")
 
-    credentials = maap.aws.requester_pays_credentials()
-
+    os.environ["EARTHDATA_USERNAME"] = maap.secrets.get_secret("EARTHDATA_USERNAME")
+    os.environ["EARTHDATA_PASSWORD"] = maap.secrets.get_secret("EARTHDATA_PASSWORD")
+    
+    credentials = maap.aws.requester_pays_credentials()    
     boto3_session = boto3.Session(
         aws_access_key_id=credentials["aws_access_key_id"],
         aws_secret_access_key=credentials["aws_secret_access_key"],
@@ -121,10 +124,60 @@ def configure_requester_pays():
 
 # =============================================================================
 # DOWNLOAD HLS REFERENCE GRANULE
-# =============================================================================
-
+# =============================================================================        
+def hls_granule(maap, MGRS_TILE, DATE):
+    ###### example sample tile: HLS.L30.T19HFT.2021087T141607.v2.0
+    # COLLECTION_ID = 'C2021957657-LPCLOUD' # STAC ID: HLSL30.v2.0
+    date = DATE
+    date_range = f"{date}T00:00:00Z,{date}T23:59:59Z" #'2021-03-28T00:00:00Z,2021-03-28T23:59:59Z'
+    mgrs_tile = MGRS_TILE #'19HFT'
+    ##### search CMR
+    results = maap.searchGranule(
+        # concept_id=COLLECTION_ID,
+        short_name='HLSL30',
+        temporal=date_range,
+        readable_granule_name=f"HLS.L30.T{mgrs_tile}.*",
+        cmr_host='cmr.earthdata.nasa.gov',
+    )
+    urls = []
+    # Loop through granules
+    for granule in results:
+        access_urls = granule["Granule"]["OnlineAccessURLs"]["OnlineAccessURL"]       
+        for entry in access_urls:
+            url = entry["URL"]          
+            if not url.startswith("s3"):
+                continue            
+            # Filter bands
+            if any(b in url for b in ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "Fmask"]):
+                urls.append(url)   
+    # Check results and download data
+    downloaded_files=[]
+    for u in urls:
+        print(u)
+        parsed = urlparse(u)
+        key = parsed.path.lstrip("/").split("/", 1)[1]
+        local_path = os.path.join(OUTPUT_DIR, os.path.basename(key))
+        if os.path.exists(local_path):
+            print("The file exists!")
+        else:
+        #     s3.download_file(
+        #         u,
+        #         local_path,
+        #         ExtraArgs={"RequestPayer": "requester"},
+        #     )
+            command = f"aws s3 cp {u} {local_path} --request-payer requester"
+            result = subprocess.run(command, shell=True, check=True)
+            logger.info(result.stdout)
+            if result.returncode != 0:
+                logger.error(result.stderr)
+                raise RuntimeError(f"aws s3 cp failed: {s3_path}")
+        downloaded_files.append(local_path)
+        
+    logger.info(f"Downloaded {len(downloaded_files)} files")
+    return downloaded_files
+            
 def download_hls_granule(mgrs_tile, date):
-
+#need to deal with EarthAccess credentials on DPS
     logger.info(f"Downloading HLS reference for {mgrs_tile} {date}")
 
 
@@ -498,8 +551,8 @@ def compare_sr(landsat_sr_paths, hls_paths, mgrs_tile, date):
                 hls = src.read(1, masked=True)*0.0001
             diff = hls - landsat
             ratio = landsat/hls
-            diff_p50, diff_p75, diff_p95 = np.percentile(np.abs(diff), [50, 75, 95])
-            ratio_p50, ratio_p75, ratio_p95 = np.percentile(ratio, [50, 75, 95])
+            diff_p50, diff_p75, diff_p95 = np.nanpercentile(np.abs(diff), [50, 75, 95])
+            ratio_p50, ratio_p75, ratio_p95 = np.nanpercentile(ratio, [50, 75, 95])
             row_data = [bands[i],landsat.mean(),hls.mean(),landsat.std(),hls.std(),
                    np.abs(diff).mean(), np.abs(diff).std(),diff_p50, diff_p75, diff_p95,
                   ratio.mean(), ratio.std(), ratio_p50, ratio_p75, ratio_p95,]            
@@ -724,19 +777,16 @@ def main():
         #
         # Download HLS reference granule
         #
-        hls_granules = download_hls_granule(
-            mgrs_tile,
-            date
-        )
+        hls_granules = download_hls_granule(mgrs_tile, date)
+
         sorted_hls = sorted(hls_granules, key=lambda x: os.path.basename(x))
         
-        ref_path = [path for path in hls_granules if 'B05' in path.name.split('.')]
-        ref_path = ref_path[0]
+        ref_path = sorted_hls[0]
         logger.info(ref_path)
         
-        #
-        # Run Landsat -> HLS workflow
-        #
+        # #
+        # # Run Landsat -> HLS workflow
+        # #
         output_toa_files = landsat_toa_granule(
             mgrs_tile,
             date,

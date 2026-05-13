@@ -106,7 +106,6 @@ def configure_requester_pays():
 
     os.environ["EARTHDATA_USERNAME"] = maap.secrets.get_secret("EARTHDATA_USERNAME")
     os.environ["EARTHDATA_PASSWORD"] = maap.secrets.get_secret("EARTHDATA_PASSWORD")
-    raise RuntimeError("No Earthdata credentials found in MAAP secrets")
     
     credentials = maap.aws.requester_pays_credentials()    
     boto3_session = boto3.Session(
