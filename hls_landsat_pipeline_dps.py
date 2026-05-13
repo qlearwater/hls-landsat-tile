@@ -105,7 +105,11 @@ def configure_requester_pays():
     maap = MAAP(maap_host="api.maap-project.org")
 
     credentials = maap.aws.requester_pays_credentials()
-
+    # os.environ["AWS_ACCESS_KEY_ID"] = credentials["aws_access_key_id"]
+    # os.environ["AWS_SECRET_ACCESS_KEY"] = credentials["aws_secret_access_key"]
+    # os.environ["AWS_SESSION_TOKEN"] = credentials["aws_session_token"]
+    # os.environ["AWS_REQUEST_PAYER"] = "requester"
+    
     boto3_session = boto3.Session(
         aws_access_key_id=credentials["aws_access_key_id"],
         aws_secret_access_key=credentials["aws_secret_access_key"],
@@ -122,7 +126,7 @@ def configure_requester_pays():
 
 # =============================================================================
 # DOWNLOAD HLS REFERENCE GRANULE
-# =============================================================================
+# =============================================================================        
 def hls_granule(maap, MGRS_TILE, DATE):
     ###### example sample tile: HLS.L30.T19HFT.2021087T141607.v2.0
     # COLLECTION_ID = 'C2021957657-LPCLOUD' # STAC ID: HLSL30.v2.0
@@ -164,7 +168,11 @@ def hls_granule(maap, MGRS_TILE, DATE):
         #         ExtraArgs={"RequestPayer": "requester"},
         #     )
             command = f"aws s3 cp {u} {local_path} --request-payer requester"
-            subprocess.run(command, shell=True, check=True)
+            result = subprocess.run(command, shell=True, check=True)
+            logger.info(result.stdout)
+            if result.returncode != 0:
+                logger.error(result.stderr)
+                raise RuntimeError(f"aws s3 cp failed: {s3_path}")
         downloaded_files.append(local_path)
         
     logger.info(f"Downloaded {len(downloaded_files)} files")
@@ -175,7 +183,7 @@ def download_hls_granule(mgrs_tile, date):
     logger.info(f"Downloading HLS reference for {mgrs_tile} {date}")
 
 
-    earthaccess.login()
+    earthaccess.login(strategy="environment")
 
     results = earthaccess.search_data(
         short_name="HLSL30",
@@ -771,7 +779,7 @@ def main():
         #
         # Download HLS reference granule
         #
-        hls_granules = hls_granule(maap, mgrs_tile, date)
+        hls_granules = download_hls_granule(mgrs_tile, date)
 
         sorted_hls = sorted(hls_granules, key=lambda x: os.path.basename(x))
         
