@@ -5,6 +5,7 @@ set -x
 
 export PYTHONUNBUFFERED=1
 
+
 echo "STARTING DPS JOB"
 
 basedir=$(dirname "$(readlink -f "$0")")
