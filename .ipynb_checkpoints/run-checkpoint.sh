@@ -4,10 +4,6 @@ set -e
 set -x
 
 export PYTHONUNBUFFERED=1
-export EARTHDATA_USERNAME=$(cat /etc/secrets/EARTHDATA_USERNAME)
-export EARTHDATA_PASSWORD=$(cat /etc/secrets/EARTHDATA_PASSWORD)
-echo "Secret files:"
-find /etc/secrets -type f 2>/dev/null
 
 echo "STARTING DPS JOB"
 

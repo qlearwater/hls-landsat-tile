@@ -103,13 +103,11 @@ def configure_requester_pays():
     logger.info("Configuring requester-pays credentials")
 
     maap = MAAP(maap_host="api.maap-project.org")
-
-    credentials = maap.aws.requester_pays_credentials()
-    # os.environ["AWS_ACCESS_KEY_ID"] = credentials["aws_access_key_id"]
-    # os.environ["AWS_SECRET_ACCESS_KEY"] = credentials["aws_secret_access_key"]
-    # os.environ["AWS_SESSION_TOKEN"] = credentials["aws_session_token"]
-    # os.environ["AWS_REQUEST_PAYER"] = "requester"
+    secrets = maap.secrets.get_secret()
+    os.environ["EARTHDATA_USERNAME"] = secrets["EARTHDATA_USERNAME"]
+    os.environ["EARTHDATA_PASSWORD"] = secrets["EARTHDATA_PASSWORD"]
     
+    credentials = maap.aws.requester_pays_credentials()    
     boto3_session = boto3.Session(
         aws_access_key_id=credentials["aws_access_key_id"],
         aws_secret_access_key=credentials["aws_secret_access_key"],
