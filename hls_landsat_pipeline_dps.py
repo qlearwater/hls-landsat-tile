@@ -362,7 +362,14 @@ def find_landsat_scene(base, year, path, row, date):
     fs = s3fs.S3FileSystem(anon=False, requester_pays=True)
     prefix = f"{base}/{year}/{path}/{row}/"
     dirs = fs.ls(prefix)
-    return [d for d in dirs if date in d and "_T1" in d]
+    # return [d for d in dirs if date in d and "_T1" in d]
+    # return [d for d in dirs if date in d]
+    results = []
+    for d in dirs:
+        lparts = d.split('/')[-1].split('_')
+        if len(lparts)>3 and lparts[3]==str(date):
+            results.append(d)
+    return results
 
 ###### Landsat Collection 2 L1TP TOA reflectance
 ###### https://www.usgs.gov/landsat-missions/using-usgs-landsat-level-1-data-product
