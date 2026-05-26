@@ -581,7 +581,62 @@ def compare_sr(landsat_sr_paths, hls_paths, mgrs_tile, date):
             formatted_row = [f"{x:.5f}" if isinstance(x, float) else x for x in row_data]
             writer.writerow(formatted_row)
     return out_stats
-    
+
+def compare_clear_sr(landsat_sr_paths, hls_paths, mgrs_tile, date):
+    logger.info(f"Comparing Landsat and HLS SR of Clear Pixels")
+    bands = ["B1", "B2", "B3", "B4", "B5", "B6", "B7"]
+    header = ["BAND","LANDSAT_MEAN","HLS_MEAN","LANDSAT_STD","HLS_STD",
+               "ABS_DIFF_MEAN","ABS_DIFF_STD","ABS_DIFF_MEDIAN","ABS_DIFF_75","ABS_DIFF_95",
+               "RATIO_MEAN","RATIO_STD","RATIO_MEDIAN","RATIO_75","RATIO_95",
+               "ABS_DIFF_MEAN_95CI","ABS_DIFF_STD_95CI","RATIO_MEAN_95CI","RATIO_STD_95CI"]
+    out_stats = f"{OUTPUT_DIR}/CLEAR.SR.T{mgrs_tile}.{date}.csv"
+    with open(out_stats, 'w', newline='') as outfile:
+        writer = csv.writer(outfile)
+        writer.writerow(header)
+        with rio.open(hls_paths[10]) as msrc:
+            logger.info(f"Creating clear mask:{hls_paths[10]}")
+            fmask = msrc.read(1, masked=True)
+            fmask = fmask.astype(np.uint8)
+            # Create individual boolean masks using bitwise AND (&) and left-shift (<<)
+            # Bits are 0-indexed, so Bit 1 corresponds to the 2nd position in the byte
+            is_cloud = (fmask & (1 << 1)) > 0       # Bit 1: Cloud
+            is_shadow = (fmask & (1 << 2)) > 0      # Bit 2: Adjacent to cloud
+            is_adjacent = (fmask & (1 << 3)) > 0    # Bit 3: Cloud shadow
+            is_water = (fmask & (1 << 4)) > 0       # Bit 4: Snow/ice
+            is_snow = (fmask & (1 << 5)) > 0        # Bit 5: Water
+            cmask = is_cloud | is_shadow | is_adjacent | is_water | is_snow
+            for i in range(7):
+                with rio.open(landsat_sr_paths[i]) as lsrc:
+                    landsat = lsrc.read(1, masked=True)
+                    landsat.mask = landsat.mask | cmask
+                    with rio.open(hls_paths[i]) as src:
+                        hls = src.read(1, masked=True)*0.0001
+                        hls.mask = hls.mask | cmask
+                        diff = hls - landsat
+                        ratio = landsat/hls
+                        diff_p50, diff_p75, diff_p95 = np.nanpercentile(np.abs(diff), [50, 75, 95])
+                        ratio_p50, ratio_p75, ratio_p95 = np.nanpercentile(ratio, [50, 75, 95])
+                        row_data = [bands[i],landsat.mean(),hls.mean(),landsat.std(),hls.std(),
+                               np.abs(diff).mean(), np.abs(diff).std(),diff_p50, diff_p75, diff_p95,
+                              ratio.mean(), ratio.std(), ratio_p50, ratio_p75, ratio_p95,]            
+            
+                        diff_mean = diff.mean()
+                        diff_std = diff.std()
+                        lower_bound = diff_mean - 2 * diff_std
+                        upper_bound = diff_mean + 2 * diff_std
+                        mask = (diff > lower_bound) & (diff < upper_bound)
+                        row_data.extend([np.mean(np.abs(diff[mask])), np.std(np.abs(diff[mask]))])
+                        
+                        ratio_mean = ratio.mean()
+                        ratio_std = ratio.std()
+                        lower_bound = ratio_mean - 2 * ratio_std
+                        upper_bound = ratio_mean + 2 * ratio_std
+                        mask = (ratio > lower_bound) & (ratio < upper_bound)
+                        row_data.extend([np.mean(ratio[mask]), np.std(ratio[mask])])
+                        # Format floats to 5 decimals, keep other data types as they are
+                        formatted_row = [f"{x:.5f}" if isinstance(x, float) else x for x in row_data]
+                        writer.writerow(formatted_row)
+    return out_stats
 # =============================================================================
 # per granule logger
 # =============================================================================
@@ -807,7 +862,8 @@ def main():
         )
 
 
-        output_stats = compare_sr(output_sr_files, sorted_hls, mgrs_tile, date)
+        stats_sr = compare_sr(output_sr_files, sorted_hls, mgrs_tile, date)
+        stats_clear_sr = compare_clear_sr(output_sr_files, sorted_hls, mgrs_tile, date)
         
         # #
         # # Stage outputs for DPS collection
@@ -815,7 +871,8 @@ def main():
         # #
         # # Upload to S3
         # #
-        upload_to_s3(output_stats, mgrs_tile, date)
+        upload_to_s3(stats_sr, mgrs_tile, date)
+        upload_to_s3(stats_clear_sr, mgrs_tile, date)
         uploaded = upload_all_outputs_to_s3(
             mgrs_tile,
             date
